@@ -41,7 +41,7 @@ public class FileUtils {
     }
 
     public TableReferenceObject getMSConfig() {
-        return getConfiguration(configurationFile);
+        return getConfiguration();
     }
 
     public void convertExcelFile(String fileName) throws IOException, InvalidFormatException {
@@ -155,8 +155,7 @@ public class FileUtils {
                     newRow.createCell(i).setCellValue("");   //Add all the empty cells first
                 }
 
-
-                //Lamda requirement?
+                //Lamda requirement
                 final String[] dbId = { null };
                 final String[] metName = { null };
 
@@ -165,7 +164,7 @@ public class FileUtils {
 
                     if (metabolonColumnNumber == 11 || metabolonColumnNumber == 12) { // KEGG (11) or HMDB (12)
                         if (cell.getRichStringCellValue().getString() != null && cell.getRichStringCellValue().getString().length() > 2)
-                            dbId[0] = cell.getRichStringCellValue().getString(); // to be used for "database_identifier".
+                            dbId[0] = cell.getRichStringCellValue().getString(); // to be used for "database_identifier"
                         // Adding KEGG first, in case HMDB is not reported
                     }
 
@@ -190,37 +189,30 @@ public class FileUtils {
                         //TODO, fix the -13 hack!
                     }
 
-
                 });
 
                 //if (dbId[0] != null && dbId[0].length() > 2)
                 if (metName[0] != null) {
 
-                    String cleanMetName = metName[0].replaceAll("\\*","");
+                    String cleanMetName = metName[0].replaceAll("\\*",""); //Get rid of "*" (astrix) in compound names before searching
                     Metabolite met = getMetaboliteInformation(dbId[0], cleanMetName);
 
-                    if (met != null) { // Replace with MetaboLights WS search results
-                        String identifier, formula, description, smiles, inchi;
-                        identifier = met.getIdentifier();
-                        formula = met.getFormula();
-                        description = met.getDescription();
-                        smiles = met.getSmiles();
-                        inchi = met.getInchi();
+                    if (met != null) { // Add and/or replace with MetaboLights WS search results
 
-                        if (identifier != null)
-                            newRow.createCell(0).setCellValue(identifier);
+                        if (met.getIdentifier() != null)
+                            newRow.createCell(0).setCellValue(met.getIdentifier());
 
-                        if (formula != null)
-                            newRow.createCell(1).setCellValue(formula);
+                        if (met.getFormula() != null)
+                            newRow.createCell(1).setCellValue(met.getFormula());
 
-                        if (smiles != null)
-                            newRow.createCell(2).setCellValue(smiles);
+                        if (met.getSmiles() != null)
+                            newRow.createCell(2).setCellValue(met.getSmiles());
 
-                        if (inchi != null)
-                            newRow.createCell(3).setCellValue(inchi);
+                        if (met.getInchi() != null)
+                            newRow.createCell(3).setCellValue(met.getInchi());
 
-                        if (description != null)
-                            newRow.createCell(4).setCellValue(description);
+                        if (met.getDescription() != null)
+                            newRow.createCell(4).setCellValue(met.getDescription());
 
                     }
                 }
@@ -282,14 +274,13 @@ public class FileUtils {
     }
 
 
-    private TableReferenceObject getConfiguration(String fileName){
+    private TableReferenceObject getConfiguration(){
         TableReferenceObject tableReferenceObject = null;
 
         //Load the current settings file
         try {
             InputStream inputStream = new FileInputStream(configurationFile);
             IsatabConfigFileDocument configurationFile = IsatabConfigFileDocument.Factory.parse(inputStream);
-
             ConfigXMLParser parser = new ConfigXMLParser("");
 
             //Add columns defined in the configuration file
@@ -297,9 +288,9 @@ public class FileUtils {
                 parser.processTable(doc);
             }
 
-            if (parser.getTables().size() > 0) {
+            if (parser.getTables().size() > 0)
                 return parser.getTables().get(0);
-            }
+
         } catch (XmlException e) {
             e.printStackTrace();
         } catch (IOException e) {

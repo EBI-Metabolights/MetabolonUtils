@@ -6,9 +6,6 @@ import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import java.io.File;
 import java.io.IOException;
 
-/**
- * Created by rajeevkumarsingh on 18/12/17.
- */
 
 public class ExcelReader {
 
@@ -27,8 +24,8 @@ public class ExcelReader {
         } catch (InvalidFormatException e) {
             e.printStackTrace();
         }
-    }
 
+    }
 }
 
 

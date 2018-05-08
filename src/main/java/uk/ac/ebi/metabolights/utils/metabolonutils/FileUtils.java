@@ -26,7 +26,9 @@ public class FileUtils {
     private final static String startingVolumeAnnotation = "STARTING_VOLUME";
     private final static String headersAnnotation = "HEADERS";
     private final static String dataAnnotation = "DATA";
-    private final static String sheetName = "MAF";
+    private final static String MAFSheetName = "MAF Data";
+    private final static String metabolonSheetName = "Metabolon Data";
+    private final static String annotatedSheetName = "Annotated Data";
     private static int lastCellNumber = 0;
 
     public static int getLastCellNumber() {
@@ -44,9 +46,12 @@ public class FileUtils {
     public void convertExcelFile(String fileName) throws IOException, InvalidFormatException {
         // Creating a Workbook from an Excel file (.xls or .xlsx)
         Workbook workbook = WorkbookFactory.create(new File(fileName));
+        workbook.setSheetName(workbook.getSheetIndex(workbook.getSheetAt(0)), metabolonSheetName);
+        workbook.cloneSheet(0); //Copy the existing sheet
 
-        //Retrieving worksheets
-        Sheet metabolonSheet = workbook.getSheetAt(0);
+        //Retrieving the cloned worksheet
+        Sheet metabolonSheet = workbook.getSheetAt(1);   //Sheet 0 is the original data from Metabolon
+        workbook.setSheetName(workbook.getSheetIndex(metabolonSheet), annotatedSheetName);
 
         //Annotation rows in the original Metabolon sheet
         metabolonSheet.forEach(row -> {
@@ -59,18 +64,20 @@ public class FileUtils {
         addMetabolonData(newSheet, metabolonSheet);
 
 
-        // Write the output to a file
-
+        // Write the output to a new Excel file
         FileOutputStream fileOut = new FileOutputStream("MetabolonPeakAreaTable_MAF.xlsx");
         workbook.write(fileOut);
         fileOut.close();
+
+        //TODO, add back in
+        //workbook.removeSheetAt(0);
 
         // Closing the workbook
         workbook.close();
     }
 
     private Sheet addStandardHeaderRow(Workbook workbook){
-        Sheet newSheet = workbook.createSheet(sheetName + workbook.getNumberOfSheets());
+        Sheet newSheet = workbook.createSheet(MAFSheetName);
         TableReferenceObject mafTable = getMSConfig();
         Row headerRow = newSheet.createRow(0);
 

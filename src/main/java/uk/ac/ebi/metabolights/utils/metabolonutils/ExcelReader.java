@@ -12,8 +12,8 @@ import java.io.IOException;
 
 public class ExcelReader {
 
-    //static final String filename = "MetabolonPeakAreaTable-small.xlsx";
-    static final String filename = "MetabolonPeakAreaTable-complete.xlsx";
+    static final String filename = "MetabolonPeakAreaTable-small.xlsx";
+    //static final String filename = "MetabolonPeakAreaTable-complete.xlsx";
     public static final String ExcelFile = ExcelReader.class.getClassLoader().getResource("." + File.separator + filename).getFile();
 
     public static void main(String[] args) {

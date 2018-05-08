@@ -12,6 +12,7 @@ import org.isatools.plugins.metabolights.assignments.model.Metabolite;
 
 import java.io.*;
 import java.util.ArrayList;
+import java.util.Vector;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class FileUtils {
@@ -63,14 +64,10 @@ public class FileUtils {
         newSheet = addSampleHeaderRow(newSheet, metabolonSheet);
         addMetabolonData(newSheet, metabolonSheet);
 
-
         // Write the output to a new Excel file
         FileOutputStream fileOut = new FileOutputStream("MetabolonPeakAreaTable_MAF.xlsx");
         workbook.write(fileOut);
         fileOut.close();
-
-        //TODO, add back in
-        //workbook.removeSheetAt(0);
 
         // Closing the workbook
         workbook.close();
@@ -78,17 +75,13 @@ public class FileUtils {
 
     private Sheet addStandardHeaderRow(Workbook workbook){
         Sheet newSheet = workbook.createSheet(MAFSheetName);
-        TableReferenceObject mafTable = getMSConfig();
         Row headerRow = newSheet.createRow(0);
+        TableReferenceObject mafTable = getMSConfig();  //Header values from the config file
 
-        //TODO, read config from TableReferenceObject
-        String[] standardColums = {
-                "database_identifier", "chemical_formula", "smiles", "inchi", "metabolite_identification", "mass_to_charge", "fragmentation",
-                "modifications", "charge", "retention_time", "taxid", "species", "database", "database_version", "reliability", "uri", "search_engine",
-                "search_engine", "search_engine_score", "smallmolecule_abundance_sub", "smallmolecule_abundance_stdev_sub", "smallmolecule_abundance_std_error_sub" };
-
-        for (int i = 0; i < standardColums.length; i++) {
-            headerRow.createCell(i).setCellValue(standardColums[i]);
+        Vector<String> standardHeaders =  mafTable.getHeaders(); //Get all the headers from the config file
+        for (int i = 0; i < standardHeaders.size(); i++) {
+            if (i>0)  //Skip the first row as this only has the row-number    ("Row No.")
+                headerRow.createCell(i-1).setCellValue(standardHeaders.get(i));
         }
 
         return newSheet;

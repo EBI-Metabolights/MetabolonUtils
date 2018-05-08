@@ -36,6 +36,11 @@
             <artifactId>metabolights-domain</artifactId>
             <version>4.1-SNAPSHOT</version>
         </dependency>
+        <dependency>
+            <groupId>org.isatools.plugins.metabolights</groupId>
+            <artifactId>metabolomics</artifactId>
+            <version>1.9</version>
+        </dependency>
     </dependencies>
 
     <build>

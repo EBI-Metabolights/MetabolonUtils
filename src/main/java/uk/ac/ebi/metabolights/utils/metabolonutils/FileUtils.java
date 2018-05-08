@@ -7,6 +7,8 @@ import org.isatools.isacreator.configuration.io.ConfigXMLParser;
 import org.isatools.isacreator.spreadsheet.model.TableReferenceObject;
 import org.isatools.isatab.configurator.schema.IsaTabConfigurationType;
 import org.isatools.isatab.configurator.schema.IsatabConfigFileDocument;
+import org.isatools.plugins.metabolights.assignments.actions.AutoCompletionAction;
+import org.isatools.plugins.metabolights.assignments.model.Metabolite;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -119,6 +121,19 @@ public class FileUtils {
 
     }
 
+    private Metabolite getMetaboliteInformation(String identifier, String metabolite){
+        // search by compound name
+        Metabolite met = new Metabolite();
+
+        if (identifier != null)
+            met = AutoCompletionAction.getMetaboliteFromMetaboLightWS(AutoCompletionAction.IDENTIFIER_COL_NAME, identifier);
+
+        if (metabolite != null)
+            met = AutoCompletionAction.getMetaboliteFromMetaboLightWS(AutoCompletionAction.DESCRIPTION_COL_NAME, metabolite);
+
+        return met;
+    }
+
     private void addMetabolonData(Sheet newSheet, Sheet metabolonSheet){
 
         //Output the header row first
@@ -140,29 +155,33 @@ public class FileUtils {
                     newRow.createCell(i).setCellValue("");   //Add all the empty cells first
                 }
 
+
+                //Lamda requirement?
+                final String[] dbId = { null };
+                final String[] metName = { null };
+
                 row.forEach(cell -> {
                     int metabolonColumnNumber = cell.getColumnIndex();
 
-                    String dbId = "";
-
-                    if (metabolonColumnNumber == 11) { // KEGG
+                    if (metabolonColumnNumber == 11 || metabolonColumnNumber == 12) { // KEGG (11) or HMDB (12)
                         if (cell.getRichStringCellValue().getString() != null && cell.getRichStringCellValue().getString().length() > 2)
-                            dbId = cell.getRichStringCellValue().getString(); // Add the KEGG value in case HMDB is not reported
-
-                        if (dbId.length() > 2)
-                            newRow.createCell(0).setCellValue(dbId);                //TODO, KEGG not being added
+                            dbId[0] = cell.getRichStringCellValue().getString(); // to be used for "database_identifier".
+                        // Adding KEGG first, in case HMDB is not reported
                     }
 
-                    if (metabolonColumnNumber == 12) { // HMDB
-                        if (cell.getRichStringCellValue().getString() != null && cell.getRichStringCellValue().getString().length() > 2)
-                            dbId = cell.getRichStringCellValue().getString();
+                    if (dbId[0] != null && dbId[0].length() > 2)
+                        newRow.createCell(0).setCellValue(dbId[0]); // "database_identifier"
 
-                        if (dbId.length() > 2)
-                            newRow.createCell(0).setCellValue(dbId); // "database_identifier"
+                    if (metabolonColumnNumber == 1) { //Compound name
+                        metName[0] = cell.getRichStringCellValue().getString();
+                        newRow.createCell(4).setCellValue(metName[0]); // "metabolite_identification"
                     }
 
-                    if (metabolonColumnNumber == 1) //Compound name
-                        newRow.createCell(5).setCellValue(cell.getRichStringCellValue().getString()); // "metabolite_identification"
+                    if (metabolonColumnNumber == 8) { //Mass
+                        Double cellValue = cell.getNumericCellValue();
+                        if (cellValue != null)
+                            newRow.createCell(5).setCellValue(cell.getNumericCellValue()); // "mass_to_charge"
+                    }
 
                     if (metabolonColumnNumber >= 13) {  // The sample  concentration values starts at column 13
                         Double cellValue = cell.getNumericCellValue();
@@ -174,7 +193,40 @@ public class FileUtils {
 
                 });
 
-                //Adding new value to cell
+                //if (dbId[0] != null && dbId[0].length() > 2)
+                if (metName[0] != null) {
+
+                    String cleanMetName = metName[0].replaceAll("\\*","");
+                    Metabolite met = getMetaboliteInformation(dbId[0], cleanMetName);
+
+                    if (met != null) { // Replace with MetaboLights WS search results
+                        String identifier, formula, description, smiles, inchi;
+                        identifier = met.getIdentifier();
+                        formula = met.getFormula();
+                        description = met.getDescription();
+                        smiles = met.getSmiles();
+                        inchi = met.getInchi();
+
+                        if (identifier != null)
+                            newRow.createCell(0).setCellValue(identifier);
+
+                        if (formula != null)
+                            newRow.createCell(1).setCellValue(formula);
+
+                        if (smiles != null)
+                            newRow.createCell(2).setCellValue(smiles);
+
+                        if (inchi != null)
+                            newRow.createCell(3).setCellValue(inchi);
+
+                        if (description != null)
+                            newRow.createCell(4).setCellValue(description);
+
+                    }
+                }
+
+
+                //Printing new value to cell
                 if (newRow != null)
                     newRow.forEach(newCell -> {
                         printCellValue(newCell);

@@ -12,7 +12,11 @@ import org.isatools.plugins.metabolights.assignments.model.Metabolite;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Vector;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static org.apache.poi.ss.usermodel.CellType.NUMERIC;
+import static org.apache.poi.ss.usermodel.CellType.STRING;
 
 public class FileUtils {
 
@@ -30,6 +34,7 @@ public class FileUtils {
     private final static String metabolonSheetName = "Metabolon Data";
     private final static String annotatedSheetName = "Annotated Data";
     private static int lastCellNumber = 0;
+    private static int metaboliteCellPos = 1;
 
     private SearchUtils searchUtils = new SearchUtils();
 
@@ -47,23 +52,32 @@ public class FileUtils {
 
     public void convertExcelFile(String fileName) throws IOException, InvalidFormatException {
         // Creating a Workbook from an Excel file (.xls or .xlsx)
+        System.out.println("Creating a cloned sheet for annotations, renaming the existing sheet to '"+metabolonSheetName+"'");
         Workbook workbook = WorkbookFactory.create(new File(fileName));
-        workbook.setSheetName(workbook.getSheetIndex(workbook.getSheetAt(0)), metabolonSheetName);
-        workbook.cloneSheet(0); //Copy the existing sheet
+        Sheet sheet = workbook.getSheetAt(0);
+        Row row = sheet.getRow(0);
+        System.out.println("The original sheet has "+sheet.getPhysicalNumberOfRows() +" number of rows and "+row.getLastCellNum()+" number of columns. This results in a matrix of "+ sheet.getPhysicalNumberOfRows()*row.getLastCellNum() +" cells");
+        workbook.setSheetName(workbook.getSheetIndex(sheet), metabolonSheetName);
+        workbook.cloneSheet(0); //Copy the existing sheet at position 0
 
         //Retrieving the cloned worksheet
-        Sheet clonedMetabolonSheet = workbook.getSheetAt(1);   //Sheet 0 is the original data from Metabolon, so 1 should be the cloned sheet
+        Sheet clonedMetabolonSheet = workbook.getSheetAt(1);   //Sheet 0 is the original data from Metabolon, so 1 is the cloned sheet
+        System.out.println("Renaming the cloned sheet to '"+annotatedSheetName+"'");
         workbook.setSheetName(workbook.getSheetIndex(clonedMetabolonSheet), annotatedSheetName);
 
         //Annotate each row with the row type
+        System.out.println("Annotate each row with the row type");
         annotateMetabolonSheet(clonedMetabolonSheet);
 
         //Duplicate and split all rows that has "/" in the compound name
+        System.out.println("Duplicate and split all rows that has '/' in the compound name");
         duplicateMetabolonRows(clonedMetabolonSheet);
 
         // Create the new sheet for MAF
+        System.out.println("Create the new sheet for MAF");
         Sheet newSheet = addStandardHeaderRow(workbook);
         newSheet = addSampleHeaderRow(newSheet, clonedMetabolonSheet);
+        System.out.println("Add Metabolon data to the MAF sheet");
         addMetabolonData(newSheet, clonedMetabolonSheet);
 
         // Write the output to a new Excel file
@@ -76,9 +90,10 @@ public class FileUtils {
     }
 
     private void annotateMetabolonSheet(Sheet clonedMetabolonSheet){
-        //Annotation rows in the original Metabolon sheet
+        //Annotation rows from the original Metabolon sheet
         clonedMetabolonSheet.forEach(row -> {
             int rowNum = row.getRowNum();
+            System.out.println("Annotating row: "+rowNum);
             annotateMetabolonData(row, rowNum);
         });
     }
@@ -86,23 +101,31 @@ public class FileUtils {
     private void duplicateMetabolonRows(Sheet annotatedMetabolonSheet){
         //Duplicate rows in the annoted Metabolon sheet
         ArrayList<Integer> dupRows = rowsToDuplicate(annotatedMetabolonSheet);
-        dupRows.forEach(row -> copyRows(annotatedMetabolonSheet, row));
+
+        AtomicInteger additionalRowsToMove = new AtomicInteger();
+        dupRows.forEach(row -> {
+            System.out.println("Duplicating row "+row);
+            copyRows(annotatedMetabolonSheet, row+ additionalRowsToMove.getAndIncrement());
+        });
     }
 
     protected void copyRows(Sheet worksheet, int rowNum) {
         Row sourceRow = worksheet.getRow(rowNum);
-        worksheet.shiftRows(rowNum, worksheet.getLastRowNum(), 1);
-        Row newRow = worksheet.createRow(rowNum);  //Now the source row is at rowNum+1
+        worksheet.shiftRows(rowNum, worksheet.getLastRowNum(), 1);  //Now the source row is at rowNum+1
+        Row newRow = worksheet.createRow(rowNum);
 
         // Loop through source columns to add to new row
         for (int i = 0; i < sourceRow.getLastCellNum(); i++) {
-            Cell oldCell = sourceRow.getCell(i); //The cell we are reading the data from
+            Cell oldCell = sourceRow.getCell(i, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK); //The cell we are reading the data from. If the cell us null, return a blank value
             Cell newCell = newRow.createCell(i); //New empty cell to put the data into
 
             // Copy style from old cell and apply to new cell
-            CellStyle newCellStyle = worksheet.getWorkbook().createCellStyle();
-            newCellStyle.cloneStyleFrom(oldCell.getCellStyle());
-            newCell.setCellStyle(newCellStyle);
+            CellStyle cellStyle = oldCell.getCellStyle();
+            if (cellStyle != null) {
+                CellStyle newCellStyle = worksheet.getWorkbook().createCellStyle();
+                newCellStyle.cloneStyleFrom(cellStyle);
+                newCell.setCellStyle(newCellStyle);
+            }
 
             // Set the cell data value
             switch (oldCell.getCellTypeEnum()) {
@@ -111,12 +134,14 @@ public class FileUtils {
                 case ERROR: newCell.setCellErrorValue(oldCell.getErrorCellValue()); break;
                 case NUMERIC: newCell.setCellValue(oldCell.getNumericCellValue()); break;
                 case STRING:
-                    //TODO, split the compound name
                     String metabolite = sourceRow.getCell(i).getRichStringCellValue().toString();
-                    if (metabolite.contains("/")) {
-                        String[] metabolites = metabolite.split("/");
-                        newCell.setCellValue(metabolites[0]); //1st metabolite name
-                        oldCell.setCellValue(metabolites[1]); //2ns metabolite name
+                    newCell.setCellValue(metabolite);   //First, set the new value
+                    if (metabolite.contains("/") && i == 1) {  // The metabolite name is always in position 1 (2nd column in the sheet)
+                        String[] metabolites = extractMetabolites(metabolite);
+                        if (metabolites.length == 2) {
+                            newCell.setCellValue(metabolites[0]); //1st metabolite name
+                            oldCell.setCellValue(metabolites[1]); //2ns metabolite name
+                        }
                     } else {
                         newCell.setCellValue(sourceRow.getCell(i).getRichStringCellValue());
                     }
@@ -126,14 +151,69 @@ public class FileUtils {
         }
     }
 
+    private String[] extractMetabolites(String metabolite){
+        String[] metabolites = null;
+        int slashPos = 0, startPos = 0, endPos = 0;
+
+        if (metabolite.contains("/"))
+            slashPos = metabolite.indexOf("/");
+
+        if (metabolite.contains("(")) {
+            startPos = metabolite.indexOf("(");
+            endPos = metabolite.indexOf(")");
+        }
+
+
+        if (startPos == 0) // No lipids reported, safe to split using "/"
+            return metabolite.split("/");
+
+        //Ignore this pattern "( / )" as this is a lipid
+        //Do not split lipids if they use slash in the naming
+        //replace "/" with "#" so we can split on # only
+        if (slashPos < startPos && slashPos < endPos){ // Lipid in position 2    ( "compound/lipid(1:2/2:1)" )
+            metabolite = metabolite.replace("/","#");
+
+        } else if (slashPos > startPos && slashPos > endPos){ // Lipid in position 1 ( "lipid(1:2/2:1)/compound" )
+            metabolite = metabolite.replace(")/",")#");
+        }
+
+        return metabolite.split("#");
+    }
+
 
     private ArrayList<Integer> rowsToDuplicate(Sheet annoatedSheet){
         ArrayList<Integer> dupRows = new ArrayList<>();
 
         annoatedSheet.forEach( row -> {
             row.forEach(cell -> {
-                if (cell.getColumnIndex() == 1 && cell.getRichStringCellValue().getString().contains("/"))  //Compound name in the annotated sheet
-                    dupRows.add(cell.getRowIndex());
+                if (cell.getColumnIndex() == metaboliteCellPos ) {
+                    String textValue = cell.getRichStringCellValue().getString();
+
+                    if (textValue.contains("/") && !textValue.contains("(")){
+                        dupRows.add(cell.getRowIndex()); //Simple split as there are no brackets
+                        System.out.println(" - Compound at row "+ row.getRowNum() +" needs splitting: "+ textValue);
+                    }  else if (textValue.contains("/") && textValue.contains("(")) {  //Ok, a more complicated split
+
+                        //Let's map out where the brackets and slashes are
+                        String charPos ="";
+                        for(int i = 0, n = textValue.length() ; i < n ; i++) {
+                            switch (textValue.charAt(i)) {
+                                case '/':  charPos = charPos + "/"; break;
+                                case '(':  charPos = charPos + "("; break;
+                                case ')':  charPos = charPos + ")"; break;
+                            }
+                        }
+
+                        String noEmptyBrackets = charPos.replaceAll("\\(\\)","");
+                        if (noEmptyBrackets.equals("/")) {  //After removing empty brackets (), we are left with slashes that divide two compounds
+                            dupRows.add(cell.getRowIndex());
+                            System.out.println(" - Compound at row "+ row.getRowNum() +" needs splitting: "+ textValue);
+                        } else {
+                            System.out.println(" - Compound at row "+ row.getRowNum() +" should not be split: "+ textValue);
+                        }
+
+                    }
+                }
             });
         });
 
@@ -167,11 +247,7 @@ public class FileUtils {
             Row currentRow = row;
             if (currentRow.getCell(0).getRichStringCellValue().toString().equals(sampleNameAnnotation)) {
                 currentRow.forEach(cell -> {
-                    String cellValue = "";
-
-                    if (cell.getRichStringCellValue().getString() != null)
-                        cellValue = cell.getRichStringCellValue().getString();
-
+                    String cellValue = getNumericOrDoubleCellValue(cell);
                     if (cellValue.length() > 1 && !cellValue.equals(sampleNameAnnotation))
                         sampleColumns.add(cellValue);
                 });
@@ -186,6 +262,26 @@ public class FileUtils {
 
         return newSheet;
 
+    }
+
+    private String getNumericOrDoubleCellValue(Cell cell){
+        String cellValue = "";
+
+        //Sample names can be text and/or numbers
+        if (cell.getCellTypeEnum() == STRING){
+            if (cell.getRichStringCellValue().getString() != null)
+                cellValue = cell.getRichStringCellValue().getString();
+        } else if(cell.getCellTypeEnum() == NUMERIC) {
+            Double numCellValue = cell.getNumericCellValue();
+            if (numCellValue != null)
+                cellValue = numCellValue.toString();
+
+        }
+
+        if (cellValue.equals("."))
+            return "";
+
+        return cellValue;
     }
 
     /**
@@ -207,18 +303,19 @@ public class FileUtils {
     private void addMetabolonData(Sheet newSheet, Sheet metabolonSheet){
 
         //Output the header row first
-        newSheet.getRow(0).forEach(newCell -> {
-            printCellValue(newCell);
-        });
-        System.out.println(); //Only to ensure line breaks when printing to screen
+        //newSheet.getRow(0).forEach(newCell -> {
+        //    printCellValue(newCell);
+        //});
+        //System.out.println(); //Only to ensure line breaks when printing to screen
 
         metabolonSheet.forEach(row -> { //Loop through the Metabolon sheet
+            int rowNum = row.getRowNum();
+            System.out.println("Adding Metabolon data for row: "+rowNum);
+
             String dataRowType = row.getCell(0).getRichStringCellValue().toString();
 
             //Retrieving cells
             if (dataRowType.equals(dataAnnotation)){
-
-                //TODO, duplicate row if compounds are separated by "/"
 
                 Row newRow = getNewRow(newSheet);
 
@@ -229,7 +326,7 @@ public class FileUtils {
                 row.forEach(cell -> {
                     int metabolonColumnNumber = cell.getColumnIndex();
 
-                    if (metabolonColumnNumber == 1) { //Compound name
+                    if (metabolonColumnNumber == metaboliteCellPos) { //Compound name
                         metName[0] = cell.getRichStringCellValue().getString();
                         newRow.createCell(4).setCellValue(metName[0]); // "metabolite_identification"
                     }
@@ -251,10 +348,15 @@ public class FileUtils {
                     }
 
                     if (metabolonColumnNumber >= 13) {  //The sample concentration values starts at column 13
-                        Double cellValue = cell.getNumericCellValue();
-                        if (cellValue != null)
-                            newRow.createCell((getLastCellNumber()+ metabolonColumnNumber)-13 ).setCellValue(cellValue); // Sample data
-                        //TODO, fix the -13 hack!
+                        String cellValue = getNumericOrDoubleCellValue(cell);
+                        Double doubleCellValue = 0.00;
+                        if (cellValue != null) {
+                            if (cellValue != "")
+                                doubleCellValue = Double.parseDouble(cellValue);
+
+                            newRow.createCell((getLastCellNumber() + metabolonColumnNumber) - 13).setCellValue(doubleCellValue); // Sample data
+                            //TODO, fix the -13 hack!
+                        }
                     }
 
                 });
@@ -265,17 +367,8 @@ public class FileUtils {
                     String cleanMetName = metName[0].replaceAll("\\*",""); //Get rid of "*" (astrix) in compound names before searching
                     met = searchUtils.getMetaboliteInformation(dbId[0], cleanMetName);
 
-                    if (met.getIdentifier() == null) {  //Most likely that the name contains more than one compound, or a lipid?
-                        if (cleanMetName.contains("/") && !cleanMetName.contains("(")) { //Ignore the lipids for now
-                            String[] compounds = cleanMetName.split("/");
-
-                            for (int i = 0; i < compounds.length; i++) {
-                                met = searchUtils.getMetaboliteInformation(null, compounds[i]); //The compounds are synonyms, so try ChEBI until we (may) find one
-                                if (met.getIdentifier() != null)
-                                    break;  //Yup, got a ChEBI compound
-                            }
-                        }
-                    }
+                    if (met.getIdentifier() == null)
+                        met = searchUtils.getMetaboliteInformation(null, cleanMetName); //The compounds may be synonyms, so try ChEBI until we (may) find one
 
                     if (met != null) { // Add and/or replace with MetaboLights WS search results
 
@@ -295,12 +388,11 @@ public class FileUtils {
                 }
 
                 //Printing new value in cell
-                if (newRow != null)
-                    newRow.forEach(newCell -> {
-                        printCellValue(newCell);
-                    });
-
-                System.out.println(); //To ensure line breaks when printing to screen
+                //if (newRow != null)
+                //    newRow.forEach(newCell -> {
+                //        printCellValue(newCell);
+                //    });
+                //System.out.println();
 
             }
         });
